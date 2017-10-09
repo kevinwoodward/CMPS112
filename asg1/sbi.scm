@@ -1,5 +1,5 @@
 #!/usr/bin/racket -qr
-#lang scheme
+#lang racket
 ;; $Id: sbi.scm,v 1.3 2016-09-23 18:23:20-07 - - $
 ;;
 ;; NAME
@@ -55,7 +55,14 @@
 ;; Helpers
 
 (define (eval-expr expr)
-    (display expr)) ;;TODO 
+   (cond ((number? expr) expr)
+         ((string? expr) expr)
+         ((symbol? expr) (if (variable-has-key? expr) (variable-get expr) expr)
+         ((not (function-has-key? (car expr))) expr)
+         ((pair? expr)   (apply (function-get (car expr))
+                                  (map eval-expr (cdr expr))))
+         (else #f))
+)
 
 ;; Function table declaration
 
@@ -63,14 +70,19 @@
     (lambda (pair)
             (function-put! (car pair) (cadr pair)))
     `(
+        (print   ,(lambda (arg . rest)
+                      (display arg)
+                      (display " ")
+                      (when (not (null? rest)) (apply (function-get 'print) rest))
+                      (when (null? rest) (display "\n"))))
 
-        (dim     ,(lambda (var expr) (
+        (let     ,(lambda (mem expr)
                       (cond
-                          ((number? expr) (variable-put! var expr))
-                          (else (variable-put! var (eval-expr expr)))))))
-        (let     ,let) ;;TODO  
-        (goto    ,goto) ;;TODO
-        
+                          ((number? expr) (variable-put! mem expr))
+                        )))
+
+        (dim     ,(lambda (data)
+                      (
         
         (abs     ,abs)
         (acos    ,acos)
@@ -92,7 +104,16 @@
         (tan     ,tan)
         (trunc   ,truncate)
         (+       ,+)
-        (^       ,expt)        
+        (^       ,expt)
+        (/       ,/)
+        (*       ,*)
+        (%       ,(lambda (x y) (- x (* (trunc (/ x y)) y))))
+        (=       ,=)
+        (<       ,<)
+        (>       ,>)
+        (<=      ,<=)
+        (>=      ,>=)
+        (<>      ,(lambda (x y) (not (= x y))))
      ))
 
 ;; Variable table declaration
@@ -155,17 +176,17 @@
 
 (define (interpret-line line)
     (cond
-        ((= 3 (length line)) (display 3))
-        ((= 2 (length line)) (display 2))
-        ((= 1 (length line)) (display 1))) 
-    (display line))
-     
+        ((= 3 (length line)) (eval-expr (caddr line)))
+        ((= 2 (length line)) (when (not(label-has-key? (cadr line))) (eval-expr (cadr line))))))
+
+
 (define (main arglist)
     (if (or (null? arglist) (not (null? (cdr arglist))))
         (usage-exit)
         (let* ((sbprogfile (car arglist))
                (program (readlist-from-inputfile sbprogfile)))
               ;;(write-program-by-line sbprogfile program))))
-              (run-program program))))
+               (scan-for-labels program)
+               (run-program program))))
 
-(main (vector->list (current-command-line-arguments)))
+(main '("00-hello-world.sbir"))
