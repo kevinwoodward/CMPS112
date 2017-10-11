@@ -41,7 +41,7 @@
 (define *variable-table* (make-hash))
 
 (define (variable-get key)
-        (hash-ref *variable-table* key 0))
+        (hash-ref *variable-table* key 0)) ;; Treats uninitialized vars as 0.
 
 (define (variable-put! key value)
         (hash-set! *variable-table* key value))
@@ -55,11 +55,14 @@
 ;; Helpers
 
 (define (get-input-number varname)
-   (display "Input a numeric value for: ")
-   (display varname)
-   (display "\n")
-   (define result (read))
-   (if (not (number? result)) (begin (display "Error: Input not a number! Try again.\n") (get-input-number varname)) result))
+    (display "Input a numeric or string filepath value for: ")
+    (display varname)
+    (display "\n")
+    (define result (read))
+    (cond
+        ((eof-object? result) (begin (display "EOF encountered. Exiting with -1.\n") (exit -1)))
+        ((number? result) result)
+        (else (begin (display "Error: Non-numeric value has been entered. Replaced with +nan.0 .\n") +nan.0))))   
 
 (define (error-and-quit filename linenum)
    (display "Error in file: ")
@@ -69,16 +72,13 @@
    (display "\n")
    (exit 1))
 
-;;(define (func-intermediate expr)
-    ;;(if ()
-
 (define (eval-expr expr resolve-vars)
    (cond ((number? expr) expr)
          ((string? expr) expr)
          ((symbol? expr) (if resolve-vars (variable-get expr) expr))
          ((not (function-has-key? (car expr))) expr)         
          ((pair? expr)
-               (define res (not (or (eq? (car expr) 'let) (eq? (car expr) 'dim) (eq? (car expr) 'input))))
+               (define res (not (or (eq? (car expr) 'if) (eq? (car expr) 'goto) (eq? (car expr) 'let) (eq? (car expr) 'dim) (eq? (car expr) 'input))))
                (apply (function-get (car expr))
                (map (curryr eval-expr res) (cdr expr))))))
 
@@ -102,13 +102,14 @@
                           ((and (pair? mem) (number? expr)) (vector-set! (variable-get (car mem)) (- (cadr mem) 1) expr)) ;; Set array value to a number 
                           ((and (pair? mem) (symbol? expr)) (vector-set! (variable-get (car mem)) (- (cadr mem) 1) (variable-get expr))) ;; Set array value to symbol
                           ((and (pair? mem) (pair? expr)) (vector-set! (variable-get (car mem)) (- (cadr mem) 1) (vector-ref (variable-get (car expr)) (- (cadr expr) 1))))
-                          
+                          ;; else?
                         )))
 
         (dim     ,(lambda (data)
                       (variable-put! (car data) (make-vector (cadr data)))))
 
         (input   ,(lambda (arg . rest)
+                      ;;put a define _if in here for tail recursion
                       (cond
                           ((symbol? arg) (variable-put! arg (get-input-number arg)))
                           ((pair? arg)
@@ -116,8 +117,13 @@
                                   (variable-has-key? (car arg))
                                   (vector-set! (variable-get (car arg)) (- (cadr arg) 1) (get-input-number arg))
                                   (error))))
-                          (when (not (null? rest)) (apply (function-get 'input) rest)))) 
-                          
+                          (when (not (null? rest)) (apply (function-get 'input) rest))))
+
+        (goto    ,(lambda (label)
+                    (if (label-has-key? label) (label-get label) (error "Label does not exist."))))
+
+        (if      ,(lambda (boolean label)
+                      (when boolean ((function-get 'goto) label))))
         
         (abs     ,abs)
         (acos    ,acos)
@@ -139,6 +145,7 @@
         (tan     ,tan)
         (trunc   ,truncate)
         (+       ,+)
+        (-       ,-)
         (^       ,expt)
         (/       ,/)
         (*       ,*)
@@ -208,8 +215,11 @@
          (define rest (cdr program))
          (define linenum (car line))
          ;;(with-handlers ([exn:fail? (lambda (exn) (error-and-quit filename linenum))]) (interpret-line line))
-         (interpret-line line) ;;TODO check at this level if there is a goto, and if so then transfer control by (define rest (label-get labelname))
-         (run-program rest filename)))
+         (define line-result (interpret-line line)) ;;TODO check at this level if there is a goto, and if so then transfer control by (define rest (label-get labelname))
+         (if (pair? line-result) (run-program line-result filename) (run-program rest filename)))
+         (exit 0))
+         
+         ;;(run-program rest filename)))
 
 (define (interpret-line line)
     (cond
@@ -224,6 +234,7 @@
                (program (readlist-from-inputfile sbprogfile)))
               ;;(write-program-by-line sbprogfile program))))
                (scan-for-labels program)
+               (display (hash-keys *label-table*))
                (run-program program sbprogfile))))
 
 (main '("00-hello-world.sbir"))
