@@ -54,15 +54,12 @@
 
 ;; Helpers
 
-(define (get-input-number varname)
-    (display "Input a numeric or string filepath value for: ")
-    (display varname)
-    (display "\n")
+(define (get-input-number varname)    
     (define result (read))
     (cond
-        ((eof-object? result) (begin (display "EOF encountered. Exiting with -1.\n") (exit -1)))
-        ((number? result) result)
-        (else (begin (display "Error: Non-numeric value has been entered. Replaced with +nan.0 .\n") +nan.0))))   
+      ((number? result) result)
+      ((or (symbol? result) (string? result)) (variable-put! 'inputcount (- (variable-get 'inputcount) 1)))
+      ((eof-object? result) (variable-put! 'inputcount -1))))   
 
 (define (error-and-quit filename linenum)
    (display "Error in file: ")
@@ -76,7 +73,7 @@
    (cond ((number? expr) expr)
          ((string? expr) expr)
          ((symbol? expr) (if resolve-vars? (variable-get expr) expr))
-         ((and (not resolve-vars?) (not (function-has-key? (car expr))) expr))         
+         ((and (not resolve-vars?) (not (function-has-key? (car expr))) (list (car expr) (eval-expr (cadr expr) #t))))          
          ((pair? expr)
                (if
                   (vector? (variable-get (car expr)))
@@ -103,17 +100,18 @@
                         )))
 
         (dim     ,(lambda (data)
-                      (variable-put! (car data) (make-vector (cadr data)))))
+                    (variable-put! (car data) (make-vector (cadr data)))))
 
-        (input   ,(lambda (arg . rest)                      
-                      (cond
-                          ((symbol? arg) (variable-put! arg (get-input-number arg)))
-                          ((pair? arg)
-                              (if
-                                  (variable-has-key? (car arg))
-                                  (vector-set! (variable-get (car arg)) (- (cadr arg) 1) (get-input-number arg))
-                                  (error))))
-                          (when (not (null? rest)) (apply (function-get 'input) rest))))
+        (input   ,(lambda (arg . rest)
+                      (variable-put! 'inputcount (+ 1 (length rest)))
+                      (define (inputi argi . resti)
+                         (define unnested-resti (car resti))
+                         (cond
+                             ((eof-object? argi) (variable-put! 'inputcount -1))
+                             ((symbol? argi) (variable-put! argi (get-input-number argi))))                         
+                         (when (not (null? unnested-resti)) (inputi (car unnested-resti) (cdr unnested-resti))))
+                      (inputi arg rest)
+                    ))
 
         (goto    ,(lambda (label)
                     (if (label-has-key? label) (label-get label) (error "Label does not exist."))))
@@ -126,14 +124,14 @@
         (asin    ,asin)
         (atan    ,atan)
         (ceil    ,ceiling)
-        (div     ,(lambda (x y) (floor (/ x y)))) ;;TODO GET RID OF SYM TAB EXTRA SHIT
+        ;(div     ,(lambda (x y) (floor (/ x y)))) ;;TODO GET RID OF SYM TAB EXTRA SHIT
         (exp     ,exp)
         (floor   ,floor)
         (log     ,log)
         (log2    ,(lambda (x) (log x 2)))
         (log10   ,(lambda (x) (log x 10)))
         (mod     ,(lambda (x y) (- x (* ((function-get 'div) x y) y))))
-        (quot    ,(lambda (x y) (truncate (/ x y))))
+        (quot    ,(lambda (x y) (truncate ((function-get '/) x y))))
         (rem     ,(lambda (x y) (- x (* ((function-get 'quot) x y) y))))
         (round   ,round)
         (sin     ,sin)
@@ -143,7 +141,7 @@
         (+       ,+)
         (-       ,-)
         (^       ,expt)
-        (/       ,/)
+        (/       ,(lambda (x y) (/ x (+ y 0.0))))
         (*       ,*)
         (%       ,(lambda (x y) (- x (* (function-get 'trunc (/ x y)) y))))
         (=       ,=)
