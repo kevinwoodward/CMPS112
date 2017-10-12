@@ -72,15 +72,17 @@
    (display "\n")
    (exit 1))
 
-(define (eval-expr expr resolve-vars)
+(define (eval-expr expr resolve-vars?)
    (cond ((number? expr) expr)
          ((string? expr) expr)
-         ((symbol? expr) (if resolve-vars (variable-get expr) expr))
-         ((not (function-has-key? (car expr))) expr)         
+         ((symbol? expr) (if resolve-vars? (variable-get expr) expr))
+         ((and (not resolve-vars?) (not (function-has-key? (car expr))) expr))         
          ((pair? expr)
-               (define res (not (or (eq? (car expr) 'if) (eq? (car expr) 'goto) (eq? (car expr) 'let) (eq? (car expr) 'dim) (eq? (car expr) 'input))))
-               (apply (function-get (car expr))
-               (map (curryr eval-expr res) (cdr expr))))))
+               (if
+                  (vector? (variable-get (car expr)))
+                  (vector-ref (variable-get (car expr)) (- (eval-expr (cadr expr) #t) 1))
+                  (apply (function-get (car expr))
+                  (map (curryr eval-expr #t) (cdr expr)))))))
 
 ;; Function table declaration
 
@@ -89,27 +91,21 @@
             (function-put! (car pair) (cadr pair)))
     `(
         (print   ,(lambda (arg . rest)
-                      (if (pair? arg) (if (variable-has-key? (car arg)) (display (vector-ref (variable-get (car arg)) (- (cadr arg) 1))) (error "error")) (display arg)) ;; If arg is array ref, get value else print arg                     
+                      (display arg)
                       (display " ")
-                      (when (not (null? rest)) (apply (function-get 'print) rest))
-                      (when (null? rest) (display "\n"))))
+                      (if (not (null? rest)) (apply (function-get 'print) rest) (display "\n") )))
 
         (let     ,(lambda (mem expr)
                       (cond
-                          ((and (symbol? mem) (number? expr)) (variable-put! mem expr)) ;; Set var to number
-                          ((and (symbol? mem) (symbol? expr) (variable-put! mem (variable-get expr)))) ;; Set var to var
-                          ((and (symbol? mem) (pair? expr)) (variable-put! mem (vector-ref (variable-get (car expr)) (- (cadr expr) 1)))) ;; Set var to array value
+                          ((and (symbol? mem) (number? expr)) (variable-put! mem expr)) ;; Set var to number                          
                           ((and (pair? mem) (number? expr)) (vector-set! (variable-get (car mem)) (- (cadr mem) 1) expr)) ;; Set array value to a number 
-                          ((and (pair? mem) (symbol? expr)) (vector-set! (variable-get (car mem)) (- (cadr mem) 1) (variable-get expr))) ;; Set array value to symbol
-                          ((and (pair? mem) (pair? expr)) (vector-set! (variable-get (car mem)) (- (cadr mem) 1) (vector-ref (variable-get (car expr)) (- (cadr expr) 1))))
-                          ;; else?
+                          ;; TODO ELSE??
                         )))
 
         (dim     ,(lambda (data)
                       (variable-put! (car data) (make-vector (cadr data)))))
 
-        (input   ,(lambda (arg . rest)
-                      ;;put a define _if in here for tail recursion
+        (input   ,(lambda (arg . rest)                      
                       (cond
                           ((symbol? arg) (variable-put! arg (get-input-number arg)))
                           ((pair? arg)
@@ -130,7 +126,7 @@
         (asin    ,asin)
         (atan    ,atan)
         (ceil    ,ceiling)
-        (div     ,(lambda (x y) (floor (/ x y))))
+        (div     ,(lambda (x y) (floor (/ x y)))) ;;TODO GET RID OF SYM TAB EXTRA SHIT
         (exp     ,exp)
         (floor   ,floor)
         (log     ,log)
@@ -207,7 +203,7 @@
           (when (< 1 (length line))
                 (when (symbol? (cadr line))
                       (label-put! (cadr line) program)))
-          (scan-for-labels rest)))
+          (scan-for-labels rest))) 
 
 (define (run-program program filename)
     (when (< 0 (length program))
@@ -223,8 +219,18 @@
 
 (define (interpret-line line)
     (cond
-        ((= 3 (length line)) (eval-expr (caddr line) #t))
-        ((= 2 (length line)) (when (not(label-has-key? (cadr line))) (eval-expr (cadr line) #t)))))
+        ((= 3 (length line)) (call-function (caddr line)))
+        ((= 2 (length line)) (when (not(label-has-key? (cadr line))) (call-function (cadr line))))))
+
+(define (call-function stmt)
+    (define function-name (car stmt))
+    (cond
+        ((eq? 'dim function-name) ((function-get (car stmt)) (eval-expr (cadr stmt) #f)))
+        ((eq? 'let function-name) ((function-get (car stmt)) (eval-expr (cadr stmt) #f) (eval-expr (caddr stmt) #t)))
+        ((eq? 'goto function-name) ((function-get (car stmt)) (cadr stmt)))
+        ((eq? 'if function-name) ((function-get (car stmt)) (eval-expr (cadr stmt) #t) (eval-expr (caddr stmt) #f)))
+        ((eq? 'print function-name) (apply (function-get (car stmt)) (map (lambda (x) (eval-expr x #t)) (cdr stmt))))
+        ((eq? 'input function-name) (apply (function-get (car stmt)) (map (lambda (x) (eval-expr x #f)) (cdr stmt))))))
 
 
 (define (main arglist)
@@ -233,8 +239,8 @@
         (let* ((sbprogfile (car arglist))
                (program (readlist-from-inputfile sbprogfile)))
               ;;(write-program-by-line sbprogfile program))))
-               (scan-for-labels program)
-               (display (hash-keys *label-table*))
+               (scan-for-labels program)               
                (run-program program sbprogfile))))
 
 (main '("00-hello-world.sbir"))
+;(main (vector->list (current-command-line-arguments)))
