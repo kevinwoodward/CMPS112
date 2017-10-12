@@ -1,5 +1,5 @@
 #!/usr/bin/racket -qr
-#lang racket
+;#lang racket
 ;; $Id: sbi.scm,v 1.3 2016-09-23 18:23:20-07 - - $
 ;;
 ;; NAME
@@ -57,9 +57,9 @@
 (define (get-input-number varname)    
     (define result (read))
     (cond
-      ((number? result) result)
-      ((or (symbol? result) (string? result)) (variable-put! 'inputcount (- (variable-get 'inputcount) 1)))
-      ((eof-object? result) (variable-put! 'inputcount -1))))   
+      ((eof-object? result) (begin (variable-put! 'inputcount -1) result))     
+      ((number? result) result)      
+      (else (begin (variable-put! 'inputcount (- (variable-get 'inputcount) 1)) +nan.0))))   
 
 (define (error-and-quit filename linenum)
    (display "Error in file: ")
@@ -87,10 +87,12 @@
     (lambda (pair)
             (function-put! (car pair) (cadr pair)))
     `(
-        (print   ,(lambda (arg . rest)
+        (print   ,(case-lambda
+                      (() (display "\n"))
+                      ((arg . rest)
                       (display arg)
                       (display " ")
-                      (if (not (null? rest)) (apply (function-get 'print) rest) (display "\n") )))
+                      (if (not (null? rest)) (apply (function-get 'print) rest) (display "\n")))))
 
         (let     ,(lambda (mem expr)
                       (cond
@@ -106,10 +108,12 @@
                       (variable-put! 'inputcount (+ 1 (length rest)))
                       (define (inputi argi . resti)
                          (define unnested-resti (car resti))
+                         (define user-input (get-input-number argi))
                          (cond
-                             ((eof-object? argi) (variable-put! 'inputcount -1))
-                             ((symbol? argi) (variable-put! argi (get-input-number argi))))                         
-                         (when (not (null? unnested-resti)) (inputi (car unnested-resti) (cdr unnested-resti))))
+                             ((eof-object? user-input) (variable-put! 'inputcount -1))
+                             ((nan? user-input) #f)
+                             (else (variable-put! argi user-input)))                         
+                         (when (and (not (eof-object? user-input)) (not (null? unnested-resti))) (inputi (car unnested-resti) (cdr unnested-resti))))
                       (inputi arg rest)
                     ))
 
@@ -124,15 +128,14 @@
         (asin    ,asin)
         (atan    ,atan)
         (ceil    ,ceiling)
-        ;(div     ,(lambda (x y) (floor (/ x y)))) ;;TODO GET RID OF SYM TAB EXTRA SHIT
+        (cos     ,cos)        
         (exp     ,exp)
         (floor   ,floor)
-        (log     ,log)
-        (log2    ,(lambda (x) (log x 2)))
-        (log10   ,(lambda (x) (log x 10)))
-        (mod     ,(lambda (x y) (- x (* ((function-get 'div) x y) y))))
-        (quot    ,(lambda (x y) (truncate ((function-get '/) x y))))
-        (rem     ,(lambda (x y) (- x (* ((function-get 'quot) x y) y))))
+        (log     ,(case-lambda
+                    ((x) (log (+ 0.0 x)))
+                    ((x y) (log (+ 0.0 x) (+ 0.0 y)))))
+        (log2    ,(lambda (x) (log (+ 0.0 x) 2)))
+        (log10   ,(lambda (x) (log (+ x 0.0) 10)))                        
         (round   ,round)
         (sin     ,sin)
         (sqrt    ,sqrt)
@@ -143,7 +146,7 @@
         (^       ,expt)
         (/       ,(lambda (x y) (/ x (+ y 0.0))))
         (*       ,*)
-        (%       ,(lambda (x y) (- x (* (function-get 'trunc (/ x y)) y))))
+        (%       ,(lambda (x y) (- x (* (truncate (/ x (+ 0.0 y))) (+ 0.0 y)))))
         (=       ,=)
         (<       ,<)
         (>       ,>)
@@ -240,5 +243,5 @@
                (scan-for-labels program)               
                (run-program program sbprogfile))))
 
-(main '("00-hello-world.sbir"))
-;(main (vector->list (current-command-line-arguments)))
+;(main '("00-hello-world.sbir"))
+(main (vector->list (current-command-line-arguments)))
