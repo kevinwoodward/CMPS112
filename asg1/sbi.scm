@@ -1,6 +1,7 @@
 #!/afs/cats.ucsc.edu/courses/cmps112-wm/usr/racket/bin/mzscheme -qr
 
-;; $Id: sbi.scm,v 1.3 2016-09-23 18:23:20-07 - - $
+;; Kevin Woodward (keawoodw@ucsc.edu)
+;; Megan Sharp (mesharp@ucsc.edu)
 ;;
 ;; NAME
 ;;    sbi.scm - silly basic interpreter
@@ -10,7 +11,7 @@
 ;;
 ;; DESCRIPTION
 ;;    The file mentioned in argv[1] is read and assumed to be an SBIR
-;;    program, which is the executed.  Currently it is only printed.
+;;    program, which is the executed.
 ;;
 
 ;; Function table
@@ -41,7 +42,7 @@
 (define *variable-table* (make-hash))
 
 (define (variable-get key)
-   (hash-ref *variable-table* key 0)) ;; Treats uninitialized vars as 0.
+   (hash-ref *variable-table* key 0))
 
 (define (variable-put! key value)
    (hash-set! *variable-table* key value))
@@ -195,7 +196,7 @@
 (variable-put! 'e       2.718281828459045235360287471352662497757247093)
 (variable-put! 'pi      3.141592653589793238462643383279502884197169399)
 
-;; Mackey's code
+;; Main and execution
 (define *stderr* (current-error-port))
 
 (define *run-file*
