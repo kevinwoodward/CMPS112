@@ -1,9 +1,11 @@
-(* $Id: bigint.mli,v 1.1 2011-04-26 13:39:18-07 - - $ *)
+(* Kevin Woodward, keawoodw@ucsc.edu *)
+(* Megan Sharp, mesharp@ucsc.edu *)
 
 module Bigint : sig
    type bigint
    val bigint_of_string : string -> bigint
    val string_of_bigint : bigint -> string
+   val string_formatted : string -> string
    val sanitize : bigint -> bigint
    val cmp : int list -> int list -> int
    val cmp_bigint : bigint -> bigint -> int

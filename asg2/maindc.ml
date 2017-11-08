@@ -1,4 +1,5 @@
-(* $Id: maindc.ml,v 1.5 2017-04-07 13:24:41-07 - - $ *)
+(* Kevin Woodward, keawoodw@ucsc.edu *)
+(* Megan Sharp, mesharp@ucsc.edu *)
 
 include Scanner
 include Bigint
@@ -11,17 +12,26 @@ type stack_t = Bigint.bigint Stack.t
 let push value stack = Stack.push (sanitize value) stack
 let pop = Stack.pop
 
+let regtable = Hashtbl.create 128
+
 let ord thechar = int_of_char thechar
 type binop_t = bigint -> bigint -> bigint
 
-let print_number number = printf "%s\n%!" (string_of_bigint number)
+let print_number number =
+    printf "%s\n%!" (string_formatted (string_of_bigint number))
 
 let print_stackempty () = printf "dc: stack empty\n%!"
 
 let executereg (thestack: stack_t) (oper: char) (reg: int) =
     try match oper with
-        | 'l' -> printf "operator l reg 0%o is unimplemented\n%!" reg
-        | 's' -> printf "operator s reg 0%o is unimplemented\n%!" reg
+        | 'l' ->
+            if Hashtbl.mem regtable reg
+            then push (Hashtbl.find regtable reg) thestack
+            else printf
+            "dc: register '%c' (0%o) is empty\n%!"
+            (char_of_int reg) reg
+        | 's' ->
+            Hashtbl.replace regtable reg (pop thestack)
         | _   -> printf "0%o 0%o is unimplemented\n%!" (ord oper) reg
     with Stack.Empty -> print_stackempty()
 
@@ -38,10 +48,12 @@ let execute (thestack: stack_t) (oper: char) =
         | '+'  -> executebinop thestack Bigint.add
         | '-'  -> executebinop thestack Bigint.sub
         | '*'  -> executebinop thestack Bigint.mul
-        | '/'  -> (match Bigint.cmp_bigint (Stack.top thestack) Bigint.zero with
+        | '/'  -> (match Bigint.cmp_bigint
+                        (Stack.top thestack) Bigint.zero with
                     | 0     -> printf "dc: divide by zero\n%!"
                     | _     -> executebinop thestack Bigint.div)
-        | '%'  -> (match Bigint.cmp_bigint (Stack.top thestack) Bigint.zero with
+        | '%'  -> (match Bigint.cmp_bigint
+                        (Stack.top thestack) Bigint.zero with
                     | 0     -> printf "dc: divide by zero\n%!"
                     | _     -> executebinop thestack Bigint.rem)
         | '^'  -> executebinop thestack Bigint.pow

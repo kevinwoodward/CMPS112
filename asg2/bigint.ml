@@ -1,4 +1,5 @@
-(* $Id: bigint.ml,v 1.5 2014-11-11 15:06:24-08 - - $ *)
+(* Kevin Woodward, keawoodw@ucsc.edu *)
+(* Megan Sharp, mesharp@ucsc.edu *)
 
 open Printf
 
@@ -45,6 +46,25 @@ module Bigint = struct
                    in  strcat ""
                        ((if sign = Pos then "" else "-") ::
                         (map string_of_int reversed))
+
+    let rec string_formatted' str accumulated =
+        if (strlen str) <= 69
+        then strcat "\\\n" [accumulated; str]
+        else let rest_of_str = strsub str 69 ((strlen str) - 69) in
+                let beginning_of_str = strsub str 0 69 in
+                    if strlen accumulated = 0
+                    then string_formatted'
+                        rest_of_str
+                        (strcat "" [accumulated; beginning_of_str])
+                    else string_formatted'
+                        rest_of_str
+                        (strcat "\\\n" [accumulated; beginning_of_str])
+
+
+    let string_formatted str =
+        if strlen str <= 69
+        then str
+        else string_formatted' str ""
 
     let rec sanitize' (Bigint (sign, value)) =
         match value with
@@ -97,7 +117,12 @@ module Bigint = struct
         | [], list2, carry   -> sub' [carry] list2 0
         | car1::cdr1, car2::cdr2, carry ->
           let diff = car1 - car2 - carry
-          in (if diff < 0 then (diff + radix) else diff) :: sub' cdr1 cdr2 ((if diff < 0 then 1 else 0))
+          in (if diff < 0
+              then (diff + radix)
+              else diff) :: sub' cdr1 cdr2
+                ((if diff < 0
+                  then 1
+                  else 0))
 
     let double list1 =
         add' list1 list1 0
@@ -105,30 +130,36 @@ module Bigint = struct
     let rec mul' (multiplier, powerof2, multiplicand') =
     match cmp powerof2 multiplier with
      | 1        -> multiplier, []
-     | _        -> (let remainder, product =
-                   mul' (multiplier, double powerof2, double multiplicand')
-                   in (match cmp remainder powerof2 with
-                        | (-1)      -> remainder, product
-                        | _         -> sanitize_list (sub' remainder powerof2 0), add' product multiplicand' 0))
+     | _        ->
+     (let remainder, product =
+      mul' (multiplier, double powerof2, double multiplicand')
+      in (match cmp remainder powerof2 with
+          | (-1)      -> remainder, product
+          | _         ->
+          sanitize_list (sub' remainder powerof2 0),
+          add' product multiplicand' 0))
 
 
     let rec divrem' (dividend, powerof2, divisor') =
         match (cmp divisor' dividend) with
          | 1        -> [], dividend
-         | _        -> (let quotient, remainder =
-                            divrem' (dividend, double powerof2, double divisor')
-                            in (match (cmp divisor' remainder) with
-                                 | 1        -> quotient, remainder
-                                 | _        -> (add' quotient powerof2 0), sanitize_list (sub' remainder divisor' 0)))
+         | _        ->
+         (let quotient, remainder =
+            divrem' (dividend, double powerof2, double divisor')
+            in (match (cmp divisor' remainder) with
+             | 1        -> quotient, remainder
+             | _        ->
+                 (add' quotient powerof2 0),
+                 sanitize_list (sub' remainder divisor' 0)))
 
     let rec pow' (exp, base, result) =
     let exp_by_2, is_even = divrem' (exp, [1], [2]) in
     match (exp, is_even) with
-     | [], _                   -> result
-     | _, []                   -> let _, base_squared = (mul' (base, [1], base)) in
-                                        pow' (exp_by_2, base_squared, result)
-     | _, _                     -> let _, product = (mul' (result, [1], base)) in
-                                    pow' (sanitize_list (sub' exp [1] 0), base, product)
+     | [], _    -> result
+     | _, []    -> let _, base_squared = (mul' (base, [1], base)) in
+                    pow' (exp_by_2, base_squared, result)
+     | _, _     -> let _, product = (mul' (result, [1], base)) in
+                   pow' (sanitize_list (sub' exp [1] 0), base, product)
 
     let add (Bigint (sign1, value1)) (Bigint (sign2, value2)) =
     match (sign1, sign2) with
@@ -178,9 +209,7 @@ module Bigint = struct
 
     let rem (Bigint (sign1, dividend)) (Bigint (sign2, divisor)) =
         let _, remainder = divrem (dividend, divisor) in
-            if sign1 = sign2
-            then Bigint (Pos, remainder)
-            else Bigint (Neg, remainder)
+            Bigint (sign1, remainder)
 
     let pow (Bigint (sign1, value1)) (Bigint (sign2, value2)) =
         let result_value = pow' (value2, value1, [1]) in
@@ -189,11 +218,12 @@ module Bigint = struct
              | _, _, Neg, _     -> zero
              | _, [0], _, _     -> zero
              | Pos, _, Pos, _   -> Bigint (Pos, result_value)
-             | Neg, _, Pos, _   -> (let _, result_sign = divrem (value2, [2]) in
-                                       match result_sign with
-                                        | [0]     -> Bigint (Pos, result_value)
-                                        | [1]     -> Bigint (Neg, result_value)
-                                        | _       -> Bigint (Neg, [-69]))
+             | Neg, _, Pos, _   ->
+             (let _, result_sign = divrem (value2, [2]) in
+                 match result_sign with
+                  | [0]     -> Bigint (Pos, result_value)
+                  | [1]     -> Bigint (Neg, result_value)
+                  | _       -> Bigint (Neg, [-69]))
 
 
 end
