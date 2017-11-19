@@ -450,7 +450,7 @@ ifTrue: [
                 tempTree char printNl.
                 (tempTree char = 256)
                     ifTrue:[eof := true.]
-                    ifFalse:[outStream << tempTree char asCharacter.].
+                    ifFalse:[outStream nextPut: (Character value: (tempTree char)).].
 
                 tempTree := savedFinal.
     ].
