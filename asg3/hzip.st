@@ -8,7 +8,7 @@ Character extend [
    ]
    visible [
       self isPrint ifTrue: [^ '$', self asString]
-                   ifFalse: [^ self asInteger printStringRadix: 8]
+                   ifFalse: [^ self asInteger.]
    ]
 ]
 
@@ -68,6 +68,18 @@ FileStream extend [
         ].
         table incr: 256.
     ]
+
+    writeEncodedData: table stream: stream [
+        [self atEnd not] whileTrue: [
+            |ordChar|
+            ordChar := self next asInteger.
+            1 to: ((table at: ordChar) size) do:
+                [:index| stream writeBit: (((table at: ordChar) at: index) asInteger)].
+        ].
+
+        1 to: ((table at: 256) size) do:
+            [:index| stream writeBit: (((table at: 256) at: index) asInteger)].
+    ]
 ]
 
 Object subclass: Leaf [
@@ -97,7 +109,7 @@ Object subclass: Leaf [
    ]
 
    printBase: aStream [
-      ^ aStream << self class << '(' << char << ',' << count
+      ^ aStream << self class << '(' << char asCharacter visible << ',' << count
    ]
 
    printOn: aStream [
@@ -107,6 +119,21 @@ Object subclass: Leaf [
    inorder: visitor prefix: string [
       visitor value: char value: string.
    ]
+
+    postorder: bitstream [
+        bitstream writeBit: 0.
+        8 to: 1 by: -1 do: [:index|
+            bitstream writeBit: (char bitAt: index).
+        ].
+        (char = 0)
+        ifTrue: [
+            bitstream writeBit: 0.
+        ].
+        (char = 256)
+        ifTrue: [
+            bitstream writeBit: 1.
+        ].
+    ]
 
 ]
 
@@ -139,7 +166,72 @@ Leaf subclass: Tree [
       right inorder: visitor prefix: string, '1'.
    ]
 
+   postorder: bitstream [
+        left postorder: bitstream.
+        right postorder: bitstream.
+        bitstream writeBit: 1
+   ]
+
+   left [^left]
+   right [^right]
 ]
+
+Object subclass: BitStream [
+   |bitIndex byte myStream|
+   BitStream class >> new: fileStream [
+      |result|
+      result := super new.
+      result init: fileStream.
+      ^result
+   ]
+   init: fileStream [
+      myStream := fileStream.
+      bitIndex := 1.
+
+   ]
+   nextBit [
+      bitIndex = 1 ifTrue: [
+         byte := myStream next.
+         bitIndex := 9.
+      ].
+      bitIndex := bitIndex - 1.
+      ^byte value bitAt: bitIndex
+   ]
+   atEnd [
+      ^bitIndex = 1 and: [myStream atEnd]
+   ]
+
+   currByte [
+      ^byte
+   ]
+
+   flushByte [
+      bitIndex = 9 ifTrue: [
+         myStream nextPutByte: byte.
+         byte := 0.
+         bitIndex := 1.
+
+      ]
+   ]
+   writeBit: bit [
+      (byte = nil) ifTrue: [byte := 0].
+      byte := byte bitAt: (9 - bitIndex) put: bit.
+      bitIndex := bitIndex + 1.
+      self flushByte.
+   ]
+   clearByte [
+      bitIndex := 8.
+      byte := 0.
+   ]
+   padBits [
+        [bitIndex = 1]
+            whileFalse: [
+                self writeBit: 0.
+            ].
+   ]
+]
+
+
 
 "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
 "Execution begin"
@@ -154,8 +246,9 @@ inFile := nil.
 outFile := nil.
 freqTable := ZeroArray new: 257.
 sortedCol := SortedCollection new.
-decodingTree := nil.
+encodingTree := nil.
 encodingTable := ZeroArray new: 257.
+savedFinal := nil.
 
 (Smalltalk arguments size < 2)
     ifTrue: ['Must have at least 2 arguments' printNl. ObjectMemory quit: 1.].
@@ -196,6 +289,15 @@ do: [:index |
 inStream := FileStream open: inFile
                      mode: FileStream read.
 
+
+(outFile = nil)
+    ifTrue: [outStream := stdout.]
+    ifFalse: [outStream := FileStream open: outFile
+                         mode: FileStream write.].
+
+outBitstream := BitStream new: outStream.
+
+
 (compFlag | treeFlag)
 ifTrue: [
     inStream populateFreqTable: freqTable.
@@ -220,18 +322,138 @@ ifTrue: [
                             right: elem2).
     ].
 
-    decodingTree := sortedCol removeFirst.
+    encodingTree := sortedCol removeFirst.
 
-    decodingTree inorder: [:c :s |
+    encodingTree inorder: [:c :s |
             encodingTable at: (c asInteger) put: s.
     ] prefix: ''.
 
     (treeFlag)
+
         ifTrue: [
             encodingTable keysAndValuesDo: [:key :value |
                (value notNil and: [value > 0]) ifTrue: [
-                  stdout << 'encoding[' << key << ']=' << value << nl.
-               ]
+                    |charStr freq|
+                    freq := freqTable at: key.
+                    charStr := key asCharacter visible.
+                    charStr asString size to: 3 do: [:skip| stdout << ' '].
+                    stdout << ' ' << charStr.
+                    freq asString size to: 5 do: [:skip| stdout << ' '].
+                    stdout << ' ' << freq << ' ' << value << nl.
+               ].
             ].
+            ObjectMemory quit: 0.
         ].
+    (compFlag)
+        ifTrue:[
+            |encodingStr|
+            inStream reset.
+            encodingTree postorder: outBitstream.
+            inStream writeEncodedData: encodingTable stream: outBitstream.
+            outBitstream padBits.
+            ObjectMemory quit: 0.
+        ].
+].
+
+carryBit := nil.
+
+(uncompFlag)
+ifTrue: [
+    treeStack := OrderedCollection new.
+    inBitstream := BitStream new: inStream.
+    doneDecodingTree := false.
+    [(inBitstream atEnd not) & (doneDecodingTree not)]
+        whileTrue:
+        [ |currBit currByte|
+            currBit := inBitstream nextBit.
+            carryBit := currBit.
+            currByte := 0.
+            binaryConverter := 128.
+            (currBit = 0)
+                ifTrue:
+                [
+                    (1 to: 8) do:
+                    [:useless|
+                        currBit := inBitstream nextBit.
+                        carryBit := currBit.
+                        (currBit = 1)
+                            ifTrue:
+                            [
+                                currByte := currByte + binaryConverter.
+                            ].
+                            binaryConverter := binaryConverter / 2.
+                    ].
+                    (currByte = 0)
+                        ifTrue:
+                        [ |tempBit|
+                            tempBit := inBitstream nextBit.
+                            carryBit := currBit.
+                            (tempBit = 1)
+                                ifTrue:
+                                [
+                                    currByte := currByte + 256.
+                                ].
+
+
+                        ].
+                    treeStack addFirst: (Leaf new: currByte count: 1).
+                ]
+            ifFalse:
+                [ |rightTree leftTree tempTree|
+                    rightTree := treeStack removeFirst.
+                    (treeStack size = 0)
+                        ifTrue:
+                        [
+                            savedFinal := rightTree.
+                            doneDecodingTree := true.
+                        ]
+                        ifFalse:
+                        [
+                            leftTree := treeStack removeFirst.
+                            treeStack addFirst: (Tree new: (leftTree char) count: 1 left: leftTree right: rightTree). "MAYBE WRONG"
+                        ].
+
+                ].
+        ].
+
+
+
+    tempTree := savedFinal.
+    eof := false.
+    [(inBitstream atEnd not) & (eof not)]
+    whileTrue:
+    [
+        [tempTree isMemberOf: Leaf]
+            whileFalse:
+                [|tbit|
+                (carryBit = nil)
+                    ifTrue:
+                    [
+                        tbit := inBitstream nextBit.
+                    ]
+                    ifFalse:
+                    [
+                        tbit := carryBit.
+                        carryBit := nil.
+                    ].
+
+                (tbit = 0)
+                    ifTrue:
+                    [
+                        tempTree := (tempTree left).
+                    ]
+                    ifFalse:
+                    [
+                        tempTree := (tempTree right).
+                    ].
+                ].
+                tempTree char printNl.
+                (tempTree char = 256)
+                    ifTrue:[eof := true.]
+                    ifFalse:[outStream << tempTree char asCharacter.].
+
+                tempTree := savedFinal.
+    ].
+
+
 ].
