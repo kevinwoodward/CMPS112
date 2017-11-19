@@ -447,7 +447,6 @@ ifTrue: [
                         tempTree := (tempTree right).
                     ].
                 ].
-                tempTree char printNl.
                 (tempTree char = 256)
                     ifTrue:[eof := true.]
                     ifFalse:[outStream nextPut: (Character value: (tempTree char)).].
