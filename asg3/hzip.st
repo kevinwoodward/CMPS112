@@ -1,14 +1,21 @@
 #!/usr/bin/gst -f
 
+"Kevin Woodward, keawoodw@ucsc.edu"
+"Megan Sharp, mesharp@ucsc.edu"
+
 nl := Character nl.
 
 Character extend [
    isPrint [
-      ^ (Character space <= self) & (self <= $~)
+      ^ (Character space < self) & (self <= $~)
    ]
    visible [
-      self isPrint ifTrue: [^ '$', self asString]
-                   ifFalse: [^ self asInteger.]
+      self isPrint ifTrue: [^ self asString]
+                   ifFalse: [
+                        (self asInteger = 256)
+                            ifTrue: [^ 'EOF']
+                            ifFalse: [^ self asInteger].
+                   ].
    ]
 ]
 
@@ -74,11 +81,13 @@ FileStream extend [
             |ordChar|
             ordChar := self next asInteger.
             1 to: ((table at: ordChar) size) do:
-                [:index| stream writeBit: (((table at: ordChar) at: index) asInteger)].
+                [:index| stream writeBit:
+                    (((table at: ordChar) at: index) asInteger)].
         ].
 
         1 to: ((table at: 256) size) do:
-            [:index| stream writeBit: (((table at: 256) at: index) asInteger)].
+            [:index| stream writeBit:
+                (((table at: 256) at: index) asInteger)].
     ]
 ]
 
@@ -109,7 +118,8 @@ Object subclass: Leaf [
    ]
 
    printBase: aStream [
-      ^ aStream << self class << '(' << char asCharacter visible << ',' << count
+      ^ aStream << self class << '('
+        << char asCharacter visible << ',' << count
    ]
 
    printOn: aStream [
@@ -251,7 +261,10 @@ encodingTable := ZeroArray new: 257.
 savedFinal := nil.
 
 (Smalltalk arguments size < 2)
-    ifTrue: ['Must have at least 2 arguments' printNl. ObjectMemory quit: 1.].
+    ifTrue: [
+                stderr << 'Must have at least 2 arguments' << nl.
+                ObjectMemory quit: 1.
+            ].
 
 (1 to: Smalltalk arguments size)
 do: [:index |
@@ -259,15 +272,43 @@ do: [:index |
     (arg = '-d') ifTrue: [debugFlag := true].
     hasFlag & ((arg = '-t') | (arg = '-c') | (arg = '-u'))
             ifTrue:
-                ['Error' printNl.
+                [stderr <<
+                    'Options error. -[tcu](d) inFile (outFile)' << nl.
                 ObjectMemory quit: 1.]
             ifFalse:
-                [(arg = '-t') ifTrue: [treeFlag := true. hasFlag := true.].
-                (arg = '-c') ifTrue: [compFlag := true. hasFlag := true.].
-                (arg = '-u') ifTrue: [uncompFlag := true. hasFlag := true.].
-                (arg = '-td') | (arg = '-dt') ifTrue: [debugFlag := true. uncompFlag := true. hasFlag := true.].
-                (arg = '-cd') | (arg = '-dc') ifTrue: [debugFlag := true. uncompFlag := true. hasFlag := true.].
-                (arg = '-ud') | (arg = '-du') ifTrue: [debugFlag := true. uncompFlag := true. hasFlag := true.].
+                [(arg = '-t') ifTrue:
+                    [
+                        treeFlag := true.
+                        hasFlag := true.
+                    ].
+                (arg = '-c') ifTrue:
+                    [
+                        compFlag := true.
+                        hasFlag := true.
+                    ].
+                (arg = '-u') ifTrue:
+                    [
+                        uncompFlag := true.
+                        hasFlag := true.
+                    ].
+                (arg = '-td') | (arg = '-dt') ifTrue:
+                    [
+                        debugFlag := true.
+                        uncompFlag := true.
+                        hasFlag := true.
+                    ].
+                (arg = '-cd') | (arg = '-dc') ifTrue:
+                    [
+                        debugFlag := true.
+                        uncompFlag := true.
+                        hasFlag := true.
+                    ].
+                (arg = '-ud') | (arg = '-du') ifTrue:
+                    [
+                        debugFlag := true.
+                        uncompFlag := true.
+                        hasFlag := true.
+                    ].
                 ].
     (Smalltalk arguments size = 2)
         ifTrue: [
@@ -284,11 +325,21 @@ do: [:index |
 ].
 
 (hasFlag not)
-    ifTrue: ['Must specify -t, -c, or -u.' printNl. ObjectMemory quit: 1.].
+    ifTrue:
+    [
+        stderr << 'Must specify -t, -c, or -u.' << nl.
+        ObjectMemory quit: 1.
+    ].
+
+(File exists: inFile)
+    ifFalse:
+    [
+        stderr << 'File specified as input does not exist.' << nl.
+        ObjectMemory quit: 1.
+    ].
 
 inStream := FileStream open: inFile
                      mode: FileStream read.
-
 
 (outFile = nil)
     ifTrue: [outStream := stdout.]
@@ -304,7 +355,6 @@ ifTrue: [
 
     freqTable keysAndValuesDo: [:key :value |
        (value notNil and: [value > 0]) ifTrue: [
-          "stdout << 'freq[' << key << ']=' << value << nl."
           sortedCol add: (Leaf new: key count: value).
        ]
     ].
@@ -336,10 +386,12 @@ ifTrue: [
                     |charStr freq|
                     freq := freqTable at: key.
                     charStr := key asCharacter visible.
-                    charStr asString size to: 3 do: [:skip| stdout << ' '].
-                    stdout << ' ' << charStr.
-                    freq asString size to: 5 do: [:skip| stdout << ' '].
-                    stdout << ' ' << freq << ' ' << value << nl.
+                    charStr asString size to: 2 do:
+                        [:skip| stdout << ' '].
+                    stdout << charStr.
+                    freq asString size to: 5 do:
+                        [:skip| stdout << ' '].
+                    stdout << freq << ' ' << value << nl.
                ].
             ].
             ObjectMemory quit: 0.
@@ -349,13 +401,15 @@ ifTrue: [
             |encodingStr|
             inStream reset.
             encodingTree postorder: outBitstream.
-            inStream writeEncodedData: encodingTable stream: outBitstream.
+            outBitstream writeBit: 1.
+            inStream writeEncodedData: encodingTable
+                stream: outBitstream.
             outBitstream padBits.
             ObjectMemory quit: 0.
         ].
 ].
 
-carryBit := nil.
+
 
 (uncompFlag)
 ifTrue: [
@@ -366,7 +420,7 @@ ifTrue: [
         whileTrue:
         [ |currBit currByte|
             currBit := inBitstream nextBit.
-            carryBit := currBit.
+
             currByte := 0.
             binaryConverter := 128.
             (currBit = 0)
@@ -375,7 +429,7 @@ ifTrue: [
                     (1 to: 8) do:
                     [:useless|
                         currBit := inBitstream nextBit.
-                        carryBit := currBit.
+
                         (currBit = 1)
                             ifTrue:
                             [
@@ -387,7 +441,7 @@ ifTrue: [
                         ifTrue:
                         [ |tempBit|
                             tempBit := inBitstream nextBit.
-                            carryBit := currBit.
+
                             (tempBit = 1)
                                 ifTrue:
                                 [
@@ -410,9 +464,12 @@ ifTrue: [
                         ifFalse:
                         [
                             leftTree := treeStack removeFirst.
-                            treeStack addFirst: (Tree new: (leftTree char) count: 1 left: leftTree right: rightTree). "MAYBE WRONG"
+                            treeStack addFirst:
+                                (Tree new: (leftTree char)
+                                count: 1
+                                left: leftTree
+                                right: rightTree).
                         ].
-
                 ].
         ].
 
@@ -426,17 +483,8 @@ ifTrue: [
         [tempTree isMemberOf: Leaf]
             whileFalse:
                 [|tbit|
-                (carryBit = nil)
-                    ifTrue:
-                    [
-                        tbit := inBitstream nextBit.
-                    ]
-                    ifFalse:
-                    [
-                        tbit := carryBit.
-                        carryBit := nil.
-                    ].
 
+                tbit := inBitstream nextBit.
                 (tbit = 0)
                     ifTrue:
                     [
@@ -449,10 +497,19 @@ ifTrue: [
                 ].
                 (tempTree char = 256)
                     ifTrue:[eof := true.]
-                    ifFalse:[outStream nextPut: (Character value: (tempTree char)).].
+                    ifFalse:[
+                    outStream nextPutByte: tempTree char.
+                    ].
 
                 tempTree := savedFinal.
     ].
 
 
 ].
+
+inStream close.
+outStream close.
+inBitstream close.
+outBitstream close.
+
+ObjectMemory quit: 0.
