@@ -44,7 +44,7 @@ haversine_cities(IATA1, IATA2, Distance):-
 flightpossible(BeforeHours, BeforeMinutes, AfterHours, AfterMinutes) :-
     BeforeTime is (BeforeHours * 60 ) + BeforeMinutes,
     AfterTime is (AfterHours * 60 ) + AfterMinutes,
-    (AfterTime + 30) >= BeforeTime.
+    AfterTime >= (BeforeTime + 30).
 
 combinetimes(H1, M1, H2, M2, R1, R2) :-
     T is ((H1 + H2) * 60) + (M1 + M2),
@@ -70,13 +70,13 @@ writepath( [_|[]], _) :-
 
 writepath( [LocHead|LocTail], [time(Hours, Minutes)|TimeTail]) :-
     LocTail = [LocNext|_],
-    TimeTail = [time(NextHours, NextMinutes)|_],
+    TimeTail = [time(NextHours, NextMinutes)|TimesToPass],
     airport(LocHead, From, _, _),
     airport(LocNext, To, _, _),
     %Format: depart  <iata>  <location> <time>
     format('depart  %s  %s %02d:%02d\n', [LocHead, From, Hours, Minutes]),
     format('arrive  %s  %s %02d:%02d\n', [LocNext, To, NextHours, NextMinutes]),
-    writepath( LocTail, TimeTail ).
+    writepath( LocTail, TimesToPass  ).
 
 
 %listpath( Node, Node, _, _, [Node|List], _ ). % Done case, old
@@ -90,8 +90,8 @@ listpath( Node, End, time(PrevHours, PrevMins), Tried, [Node|List], [time(DepHou
   haversine_cities(Node, Next, Distance),
   ArrivalHours is floor(Distance / 500),
   ArrivalMinutes is round(((Distance / 500) - ArrivalHours) * 60),
-  flightpossible(PrevHours, PrevMins, DepHours, DepMinutes),
   combinetimes(DepHours, DepMinutes, ArrivalHours, ArrivalMinutes, NewHours, NewMinutes),
+  flightpossible(PrevHours, PrevMins, DepHours, DepMinutes), %TODO this call not failing when it should
 
   listpath( Next, End, time(NewHours, NewMinutes), [Next|Tried], List, Rest ).
 
