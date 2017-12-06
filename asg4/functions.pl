@@ -1,4 +1,5 @@
-% $Id: functions.pl,v 1.3 2016-11-08 15:04:13-08 - - $
+% Kevin Woodward, keawoodw@ucsc.edu
+% Megan Sharp, mesharp@ucsc.edu
 
 mathfns( X, List ) :-
    S is sin( X ),
@@ -33,45 +34,66 @@ haversine_radians( Lat1, Lon1, Lat2, Lon2, Distance ) :-
    Distance is Dist * 3961.
    not( X ) :- X, !, fail.
    not( _ ).
+
+
 haversine_cities(IATA1, IATA2, Distance):-
   get_radians(IATA1, Lat1, Lon1),
   get_radians(IATA2, Lat2, Lon2),
   haversine_radians(Lat1, Lon1, Lat2, Lon2, Distance).
 
+flightpossible(BeforeHours, BeforeMinutes, AfterHours, AfterMinutes) :-
+    BeforeTime is (BeforeHours * 60 ) + BeforeMinutes,
+    AfterTime is (AfterHours * 60 ) + AfterMinutes,
+    (AfterTime + 30) >= BeforeTime.
 
-   %
-   % Is there a path from one node to another?
-   %
-   writeallpaths( Node, Node ) :-
-      write( Node ), write( ' is ' ), write( Node ), nl.
-   writeallpaths( Node, Next ) :-
-      listpath( Node, Next, [Node], List ),
-      write( Node ), write( ' to ' ), write( Next ), write( ' is ' ),
-      writepath( List ).
+combinetimes(H1, M1, H2, M2, R1, R2) :-
+    T is ((H1 + H2) * 60) + (M1 + M2),
+    R1 is T // 60,
+    R2 is T mod 60.
 
-   writepath( [] ) :-
-      nl.
-   writepath( [Head|Tail] ) :-
-      write( ' ' ), write( Head ), writepath( Tail ).
+writeallpaths( Node, Node ) :-
+  write( Node ), write( ' is ' ), write( Node ), nl.
 
-   listpath( Node, End, Outlist ) :-
-      listpath( Node, End, [Node], Outlist ).
+writeallpaths( Node, Next ) :-
+  listpath( Node, Next, time(0, 0), [Node], List, Times ),
+  writepath( List, Times ).
 
-   listpath( Node, Node, _, [Node] ).
-   listpath( Node, End, Tried, [Node|List] ) :-
-      flight( Node, Next, _ ),
-      not( member( Next, Tried )),
-      listpath( Next, End, [Next|Tried], List ).
+writeList([]).
+writeList([Head|[]]) :- write(Head).
+
+writeList( [Head|Tail] ) :-
+    write(Head),
+    writeList(Tail).
+
+writepath( [_|[]], _) :-
+  nl.
+
+writepath( [LocHead|LocTail], [time(Hours, Minutes)|TimeTail]) :-
+    LocTail = [LocNext|_],
+    TimeTail = [time(NextHours, NextMinutes)|_],
+    airport(LocHead, From, _, _),
+    airport(LocNext, To, _, _),
+    %Format: depart  <iata>  <location> <time>
+    format('depart  %s  %s %02d:%02d\n', [LocHead, From, Hours, Minutes]),
+    format('arrive  %s  %s %02d:%02d\n', [LocNext, To, NextHours, NextMinutes]),
+    writepath( LocTail, TimeTail ).
 
 
-biggest( Number ) :- mynumber( Number ), nobigger( Number ).
-nobigger( Number ) :- mynumber( Other ), Other > Number, !, fail.
-nobigger( _ ).
- %converts degrees to rads
-flightduration(Distance, Time):-
-  Time is (Distance/500).
+%listpath( Node, Node, _, _, [Node|List], _ ). % Done case, old
+listpath( Node, Node, _, _, [Node|_], _ ). % Done case, singleton eliminated
 
+listpath( Node, End, time(PrevHours, PrevMins), Tried, [Node|List], [time(DepHours, DepMinutes),time(NewHours, NewMinutes)|Rest] ) :-
 
+  flight( Node, Next, time(DepHours, DepMinutes) ),
+
+  not( member( Next, Tried )),
+  haversine_cities(Node, Next, Distance),
+  ArrivalHours is floor(Distance / 500),
+  ArrivalMinutes is round(((Distance / 500) - ArrivalHours) * 60),
+  flightpossible(PrevHours, PrevMins, DepHours, DepMinutes),
+  combinetimes(DepHours, DepMinutes, ArrivalHours, ArrivalMinutes, NewHours, NewMinutes),
+
+  listpath( Next, End, time(NewHours, NewMinutes), [Next|Tried], List, Rest ).
 
 fly(Source, Destination):-
   airport(Source, _, _, _),

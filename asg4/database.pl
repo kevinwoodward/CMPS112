@@ -72,4 +72,3 @@ flight( den, chi, time( 18,30 ) ).
 flight( lax, sjc, time( 19,30 ) ).
 flight( lax, sfo, time( 20, 0 ) ).
 flight( lax, sea, time( 22,30 ) ).
-
